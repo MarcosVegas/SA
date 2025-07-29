@@ -18,7 +18,7 @@ export function handleDownloadTemplate() {
           "FinVigencia",
           "BolsaAseguradaServiciosVeterinarios",
           "SaldoGastosVeterinarios",
-          "RC",
+          "IncluyeRc",
           "BolsaAseguradaRC",
           "SaldoRC",
           "TipoIDAsegurado",
@@ -69,7 +69,8 @@ export function handleDownloadTemplate() {
           "TrasladoOtraPoliza",
           "SedeEmpresaColectiva",
           "Modificaciones",
-          "FechaExpedicionPoliza"
+          "FechaExpedicionPoliza",
+          "FechaUltimoRecibo",
         ]
       ];
 

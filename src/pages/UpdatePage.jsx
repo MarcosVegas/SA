@@ -3,15 +3,17 @@ import {useNavigate} from "react-router-dom";
 import {useRef, useState} from "react";
 import * as XLSX from "xlsx";
 import {handleDownloadTemplate} from "../shared/utils/index.js";
-import {MdOutlineFileDownload} from "react-icons/md";
-import {IoIosAttach} from "react-icons/io";
 import Swal from "sweetalert2";
-
+import { FileControls } from "../core/components/FileControls";
+import { DataTable } from "../core/components/DataTable.jsx";
+import { UploadButton } from "../core/components/UploadButton";
+import { requestUpdatePage } from "../core/services/requestUpdatePage.js";
 
 export  function UpdatePage() {
     const navigate = useNavigate();
     const [file, setFile] = useState(null);
     const [jsonData, setJsonData] = useState([]);
+    const [loading, setLoading] = useState(false);
     const fileInputRef = useRef(null);
 
     const handleMenuPage = () => {
@@ -51,8 +53,34 @@ export  function UpdatePage() {
                     fileInputRef.current.value = "";
                 }
             } else {
-                setJsonData(parsedData);
-            }
+
+    const incluyeRcValido = parsedData.every(item => {
+        const incluyeRc = String(item.IncluyeRc || item["IncluyeRc"] || "").toLowerCase();
+        return (
+            incluyeRc === "true" ||
+            incluyeRc === "false" ||
+            incluyeRc === "sí" ||
+            incluyeRc === "si" ||
+            incluyeRc === "no"
+        );
+    });
+
+    if (!incluyeRcValido) {
+        Swal.fire({
+            icon: "error",
+            title: "Valor inválido en Incluye RC",
+            text: `El campo "Incluye RC" debe ser SI o NO.`,
+        });
+        setJsonData([]);
+        setFile(null);
+        if (fileInputRef.current) {
+            fileInputRef.current.value = "";
+        }
+        return;
+    }
+
+    setJsonData(parsedData);
+}
         };
     };
 
@@ -66,6 +94,21 @@ export  function UpdatePage() {
             return;
         }
 
+        for (const item of jsonData) {
+        const poliza = String(item.NumeroPoliza || item["N° Póliza"] || "");
+        const idMascota = String(item.IDMascota || item["ID Mascota"] || "");
+        if (!idMascota.startsWith(poliza)) {
+            Swal.fire({
+                icon: "error",
+                title: "ID Mascota inválido",
+                text: `El ID de la mascota (${idMascota}) debe empezar con el número de póliza (${poliza}).`,
+            });
+            return;
+        }
+    }
+
+        setLoading(true);
+
         const formattedData = jsonData.map((item) => {
             const inicioVigencia = item["Inicio de vigencia"] || item.InicioVigencia;
             const finVigencia = item["Fin de vigencia"] || item.FinVigencia;
@@ -75,32 +118,58 @@ export  function UpdatePage() {
             const dia30PostVigencia = item["Día 30 después de inicio de vigencia"] || item.Dia30PostVigencia;
             const FechaCancelacion = item["Fecha de cancelación"] || item.FechaCancelacion;
     
-            const formatDate = (dateString) => {
-                if (!dateString) return null;
+            const formatEdad = (valor) => {
+            const num = String(valor).trim();
+            return /^[1-8]$/.test(num) ? `${num} años` : num;
+        };
+
+            const formatDate = (dateString, sumarDia = true) => {
+                if (!dateString || typeof dateString !== "string" || !dateString.includes("/")) return null;
                 const [day, month, year] = dateString.split("/");
-                return new Date(`${year}-${month}-${day}T00:00:00Z`).toISOString();
+                if (!day || !month || !year) return null;
+                const date = new Date(`${year}-${month}-${day}T00:00:00Z`);
+                if (isNaN(date.getTime())) return null; 
+                if (sumarDia) {
+                    date.setUTCDate(date.getUTCDate() + 1);
+                }
+                date.setHours(0, 0, 0, 0);
+                return date.toISOString();
             };
-    
-            // Crear el objeto con los datos formateados
+            const parseNumericField = (value) => {
+                return isNaN(value) || (typeof value === "string" && /[^\d]/.test(value)) ? 0 : Number(value);
+            };
+            const safeFormatDate = (dateString) => {
+                if (!dateString || typeof dateString !== "string" || !dateString.includes("/")) return dateString || "";
+                let [day, month, year] = dateString.split("/");
+                if (day && day.length === 1) day = "0" + day;
+                if (month && month.length === 1) month = "0" + month;
+                if (!day || !month || !year) return dateString;
+                const date = new Date(`${year}-${month}-${day}T00:00:00Z`);
+                if (isNaN(date.getTime())) return dateString;
+                date.setUTCDate(date.getUTCDate() + 1);
+                date.setHours(0, 0, 0, 0);
+                return date.toISOString();
+            };
+
             const rawData = {
                 NumeroPoliza: String(item.NumeroPoliza || item["N° Póliza"]),
                 IDMascota: String(item.IDMascota || item["ID Mascota"]),
                 NombreMascota: String(item.NombreMascota || item["Nombre mascota"]),
                 Raza: String(item.Raza || item["Raza"]),
-                FechaNacimientoMascotaEstimada: String(item.FechaNacimientoMascotaEstimada || item["Fecha estimada de nacimiento mascota"]),
-                EdadIngresoMascota: String(item.EdadIngresoMascota || item["Edad Ingreso Mascota"]),
-                EdadActualMascota: String(item.EdadActualMascota || item["Edad Actual Mascota"]),
+                FechaNacimientoMascotaEstimada: formatDate(item.FechaNacimientoMascotaEstimada || item["Fecha estimada de nacimiento mascota"]),
+                EdadIngresoMascota: formatEdad(item.EdadIngresoMascota || item["Edad Ingreso Mascota"]),
+                EdadActualMascota: formatEdad(item.EdadActualMascota || item["Edad Actual Mascota"]),
                 SexoMascota: String(item.SexoMascota || item["Sexo Mascota"]),
                 Producto: String(item.Producto || item["Producto"]),
                 Plan: String(item.Plan || item["Plan"]),
                 Estado: String(item.Estado || item["Estado"]),
                 InicioVigencia: formatDate(inicioVigencia),
                 FinVigencia: formatDate(finVigencia),
-                BolsaAseguradaServiciosVeterinarios: item.BolsaAseguradaServiciosVeterinarios || item["BolsaAseguradaServiciosVeterinarios"],
-                SaldoGastosVeterinarios: item.SaldoGastosVeterinarios || item["SaldoGastosVeterinarios"],
-                BolsaAseguradaRC: item.BolsaAseguradaRC || item["Bolsa Asegurada RC"],
-                SaldoRC: item.SaldoRC || item["Saldo RC"],
-                RC: String(item.RC || item["RC"]),
+                BolsaAseguradaServiciosVeterinarios: parseNumericField(item.BolsaAseguradaServiciosVeterinarios || item["BolsaAseguradaServiciosVeterinarios"]),
+                SaldoGastosVeterinarios: parseNumericField(item.SaldoGastosVeterinarios || item["SaldoGastosVeterinarios"]),
+                BolsaAseguradaRC: parseNumericField(item.BolsaAseguradaRC || item["Bolsa Asegurada RC"]),
+                SaldoRC: parseNumericField(item.SaldoRC || item["Saldo RC"]),
+                IncluyeRc: (String(item.IncluyeRc || item["IncluyeRc"] || "").toLowerCase() === "sí" || String(item.IncluyeRc || item["IncluyeRc"] || "").toLowerCase() === "si") ? true : false,
                 TipoIDAsegurado: String(item.TipoIDAsegurado || item["Tipo ID Asegurado"]),
                 NumeroIDAsegurado: String(item.NumeroIDAsegurado || item["Número ID Asegurado"]),
                 AseguradoNombreCompleto: String(item.AseguradoNombreCompleto || item["Asegurado Nombre Completo"]),
@@ -148,28 +217,41 @@ export  function UpdatePage() {
                 TrasladoOtraPoliza: String(item.TrasladoOtraPoliza || item["Traslado Otra Póliza"]),
                 SedeEmpresaColectiva: String(item.SedeEmpresaColectiva || item["Sede Empresa Colectiva"]),
                 Modificaciones: String(item.Modificaciones || item["Modificaciones"]),
+                FechaExpedicionPoliza: safeFormatDate(item.FechaExpedicionPoliza || item["Fecha Expedición Póliza"]),
+                FechaUltimoRecibo: safeFormatDate(item.FechaUltimoRecibo || item["Fecha Último Recibo"]),
             };
     
-            // Filtrar claves con valores null o undefined
             return Object.fromEntries(
-                Object.entries(rawData).filter(([_, value]) => value !== null && value !== "undefined")
+                Object.entries(rawData).filter(([key, value]) => {
+                    if (typeof value === "string" && value.trim() === "-") {
+                        return false;
+                    }
+                    if (value === 0) {
+                        return false;
+                    }
+                    if (value === "undefined") {
+                        return false;
+                    }
+                    return value !== 0 && value !== "" && value !== null ;
+                })
             );
         });
 
         try {
-            const response = await fetch("https://prod-25.westus.logic.azure.com:443/workflows/f01db118906d487b8ccd091489afb308/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=9dPnFqhvInfrIGrNwd6KY8is555wZ33KrIGGqcPqWp4", {
-                method: "POST",
-                headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({data: formattedData}),
-            });
-
-            if (response.ok) {
+            const responseData = await requestUpdatePage(formattedData);
+            if (responseData && responseData.success) {
                 Swal.fire({
                     icon: "success",
                     title: "Enviado correctamente",
                     text: "Los datos han sido enviados con éxito.",
                 }).then(() => {
                     window.location.reload();
+                });
+            } else if (responseData && responseData.duplicate) {
+                Swal.fire({
+                    icon: "warning",
+                    title: "Dato duplicado",
+                    text: "El dato ya existe en la base de datos.",
                 });
             } else {
                 Swal.fire({
@@ -185,6 +267,8 @@ export  function UpdatePage() {
                 title: "Error inesperado",
                 text: "Ocurrió un error al enviar la solicitud.",
             });
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -204,197 +288,20 @@ export  function UpdatePage() {
             <p className="text-[16px] mt-5">
                 Aquí podrás importar máximo 50 datos de una póliza colectiva
             </p>
-
-            <div className="flex flex-col mt-5">
-                <div className="flex gap-3">
-                    <label
-                        className="bg-blue-500 text-white px-4 py-2 rounded-[27px] cursor-pointer hover:bg-[#0033A0] text-center w-[391px] flex justify-center gap-5">
-                        <IoIosAttach className="w-6 h-6 inline-block"/>
-                        Seleccionar Archivo
-                        <input
-                            type="file"
-                            accept=".xlsx, .xls"
-                            ref={fileInputRef}
-                            onChange={handleFileChange}
-                            className="hidden"
-                        />
-                    </label>
-
-                    {file && (
-                        <p className="mt-2 text-gray-700 text-sm font-medium italic">
-                            Archivo seleccionado: {file.name}
-                        </p>
-                    )}
-                </div>
-
-                <button
-                    onClick={handleDownloadTemplate}
-                    className="bg-blue-500 text-white p-2 mt-5 rounded-[27px] h-[39px] w-[391px] cursor-pointer hover:bg-[#0033A0] flex gap-5 items-center justify-center">
-                    <MdOutlineFileDownload className="w-6 h-6 inline-block "/>
-                    Descarga plantilla de base de datos
-                </button>
-            </div>
-
+            <p>
+                <strong>  * Recuerda que los campos vacíos deben permanecer en blanco</strong>
+            </p>
+            <FileControls
+                file={file}
+                fileInputRef={fileInputRef}
+                handleFileChange={handleFileChange}
+                handleDownloadTemplate={handleDownloadTemplate}
+            />
 
             {jsonData.length > 0 && (
                 <>
-                    <div className="mt-10 overflow-x-auto max-h-[500px]">
-
-                        <table className="w-full min-w-max min-h-max border-collapse border border-gray-300 shadow-md ">
-                            <thead>
-                            <tr className="bg-blue-500 text-white">
-                                <th className="border border-gray-300 px-4 py-2">N° Póliza</th>
-                                <th className="border border-gray-300 px-4 py-2">ID Mascota</th>
-                                <th className="border border-gray-300 px-4 py-2">Nombre Mascota</th>
-                                <th className="border border-gray-300 px-4 py-2">Raza</th>
-                                <th className="border border-gray-300 px-4 py-2">Fecha Nacimiento Mascota Estimada</th>
-                                <th className="border border-gray-300 px-4 py-2">Edad Ingreso Mascota</th>
-                                <th className="border border-gray-300 px-4 py-2">Edad Actual Mascota</th>
-                                <th className="border border-gray-300 px-4 py-2">Sexo Mascota</th>
-                                <th className="border border-gray-300 px-4 py-2">Producto</th>
-                                <th className="border border-gray-300 px-4 py-2">Plan</th>
-                                <th className="border border-gray-300 px-4 py-2">Estado</th>
-                                <th className="border border-gray-300 px-4 py-2">Inicio Vigencia</th>
-                                <th className="border border-gray-300 px-4 py-2">Fin Vigencia</th>
-                                <th className="border border-gray-300 px-4 py-2">Bolsa Asegurada Servicios Veterinarios</th>
-                                <th className="border border-gray-300 px-4 py-2">Saldo Gastos Veterinarios</th>
-                                <th className="border border-gray-300 px-4 py-2">RC</th>
-                                <th className="border border-gray-300 px-4 py-2">Bolsa Asegurada RC</th>
-                                <th className="border border-gray-300 px-4 py-2">Saldo RC</th>
-                                <th className="border border-gray-300 px-4 py-2">Tipo ID Asegurado</th>
-                                <th className="border border-gray-300 px-4 py-2">Número ID Asegurado</th>
-                                <th className="border border-gray-300 px-4 py-2">Asegurado Nombre Completo</th>
-                                <th className="border border-gray-300 px-4 py-2">Asegurado Primer Apellido</th>
-                                <th className="border border-gray-300 px-4 py-2">Asegurado Segundo Apellido</th>
-                                <th className="border border-gray-300 px-4 py-2">Asegurado Sexo</th>
-                                <th className="border border-gray-300 px-4 py-2">Teléfono</th>
-                                <th className="border border-gray-300 px-4 py-2">Email</th>
-                                <th className="border border-gray-300 px-4 py-2">Dirección</th>
-                                <th className="border border-gray-300 px-4 py-2">Ciudad</th>
-                                <th className="border border-gray-300 px-4 py-2">Tipo ID Asegurado Secundario</th>
-                                <th className="border border-gray-300 px-4 py-2">Número ID Asegurado Secundario</th>
-                                <th className="border border-gray-300 px-4 py-2">Asegurado Secundario Nombre Completo</th>
-                                <th className="border border-gray-300 px-4 py-2">Asegurado Secundario Primer Apellido</th>
-                                <th className="border border-gray-300 px-4 py-2">Asegurado Secundario Segundo Apellido</th>
-                                <th className="border border-gray-300 px-4 py-2">Asegurado Secundario Sexo</th>
-                                <th className="border border-gray-300 px-4 py-2">Teléfono 2</th>
-                                <th className="border border-gray-300 px-4 py-2">Email 3</th>
-                                <th className="border border-gray-300 px-4 py-2">Dirección 4</th>
-                                <th className="border border-gray-300 px-4 py-2">Ciudad 5</th>
-                                <th className="border border-gray-300 px-4 py-2">Forma de Pago</th>
-                                <th className="border border-gray-300 px-4 py-2">Últimos 4 Dígitos Cuenta</th>
-                                <th className="border border-gray-300 px-4 py-2">Banco</th>
-                                <th className="border border-gray-300 px-4 py-2">Autoriza Débito Automático</th>
-                                <th className="border border-gray-300 px-4 py-2">Tipo Cuenta</th>
-                                <th className="border border-gray-300 px-4 py-2">Franquicia</th>
-                                <th className="border border-gray-300 px-4 py-2">Código de Oficina</th>
-                                <th className="border border-gray-300 px-4 py-2">Código Asesor</th>
-                                <th className="border border-gray-300 px-4 py-2">Apuntador Débito Automático</th>
-                                <th className="border border-gray-300 px-4 py-2">Prima Mensual Sin IVA</th>
-                                <th className="border border-gray-300 px-4 py-2">Prima Anual Sin IVA</th>
-                                <th className="border border-gray-300 px-4 py-2">Prima Mensual Con IVA</th>
-                                <th className="border border-gray-300 px-4 py-2">Prima Anual Con IVA</th>
-                                <th className="border border-gray-300 px-4 py-2">Terminación Carencia</th>
-                                <th className="border border-gray-300 px-4 py-2">Día 15 Post Vigencia</th>
-                                <th className="border border-gray-300 px-4 py-2">Día 25 Post Vigencia</th>
-                                <th className="border border-gray-300 px-4 py-2">Día 30 Post Vigencia</th>
-                                <th className="border border-gray-300 px-4 py-2">Número Microchip Mascota</th>
-                                <th className="border border-gray-300 px-4 py-2">Vía de Pago</th>
-                                <th className="border border-gray-300 px-4 py-2">Tipo Póliza</th>
-                                <th className="border border-gray-300 px-4 py-2">Empresa Colectiva</th>
-                                <th className="border border-gray-300 px-4 py-2">Cargo Colectiva</th>
-                                <th className="border border-gray-300 px-4 py-2">Fecha Cancelación</th>
-                                <th className="border border-gray-300 px-4 py-2">Motivo Cancelación</th>
-                                <th className="border border-gray-300 px-4 py-2">Nombre Asesor</th>
-                                <th className="border border-gray-300 px-4 py-2">Traslado Otra Póliza</th>
-                                <th className="border border-gray-300 px-4 py-2">Sede Empresa Colectiva</th>
-                                <th className="border border-gray-300 px-4 py-2">Modificaciones</th>
-                                <th className="border border-gray-300 px-4 py-2">Fecha Expedición Póliza</th>
-                            </tr>
-                            </thead>
-                            <tbody>
-                            {jsonData.map((item, index) => (
-                                <tr key={index} className="odd:bg-gray-100 even:bg-white">
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["N° Póliza"] || item.NumeroPoliza}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["ID Mascota"] || item.IDMascota}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Nombre mascota"] || item.NombreMascota}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Raza"] || item.Raza}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Fecha estimada de nacimiento mascota"] || item.FechaNacimientoMascotaEstimada}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Edad Ingreso Mascota"] || item.EdadIngresoMascota}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Edad Actual Mascota"] || item.EdadActualMascota}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Sexo Mascota"] || item.SexoMascota}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Producto"] || item.Producto}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Plan"] || item.Plan}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Estado"] || item.Estado}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Inicio de vigencia"] || item.InicioVigencia}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Fin de vigencia"] || item.FinVigencia}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["BolsaAseguradaServiciosVeterinarios"] || item.BolsaAseguradaServiciosVeterinarios}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["SaldoGastosVeterinarios"] || item.SaldosGastosVeterinarios}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["RC"] || item.RC}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Bolsa Asegurada RC"] || item.BolsaAseguradaRC}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Saldo RC"] || item.SaldoRC}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["TipoIDAsegurado"] || item.TipoID}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["NumeroIDAsegurado"] || item.NumeroIdAsegurado}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Asegurado Nombre Completo"] || item.AseguradoNombreCompleto}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Asegurado Primer Apellido"] || item.AseguradoPrimerApellido}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Asegurado Segundo Apellido"] || item.AseguradoSegundoApellido}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Asegurado Sexo"] || item.AseguradoSexo}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Teléfono"] || item.Telefono}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Email"] || item.Email}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Dirección"] || item.Direccion}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Ciudad"] || item.Ciudad}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Tipo ID Asegurado Secundario"] || item.TipoIDAseguradoSecundario}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Número ID Asegurado Secundario"] || item.NumeroIDAseguradoSecundario}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Asegurado Secundario Nombre Completo"] || item.AseguradoSecundarioNombreCompleto}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Asegurado Secundario Primer Apellido"] || item.AseguradoSecundarioPrimerApellido}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Asegurado Secundario Segundo Apellido"] || item.AseguradoSecundarioSegundoApellido}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Asegurado Secundario Sexo"] || item.AseguradoSecundarioSexo}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Teléfono 2"] || item.Telefono2}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Email 3"] || item.Email3}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Dirección 4"] || item.Direccion4}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Ciudad 5"] || item.Ciudad5}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Forma de Pago"] || item.FormaDePago}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Últimos 4 Dígitos Cuenta"] || item.Ultimos4DigitosCuenta}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Banco"] || item.Banco}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Autoriza Débito Automático	"] || item.AutorizaDebitoAutomatico}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Tipo Cuenta"] || item.TipoCuenta}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Franquicia"] || item.Franquicia}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["CodigoOficina"] || item.CodigoOficina}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Cod Asesor"] || item.CodigoAsesor}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["ApuntadorDebitoAutomatico"] || item.ApuntadorDebitoAutomatico}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Prima Mensual Sin IVA"] || item.PrimaMensualSinIVA }</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Prima Anual Sin IVA"] || item.PrimaAnualSinIVA}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Prima Mensual Con IVA"] || item.PrimaMensualConIVA}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Prima Anual Con IVA"] || item.PrimaAnualConIVA}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Terminación Carencia"] || item.TerminacionCarencia}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Día 15 Post Vigencia"] || item.Dia15PostVigencia}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Día 25 Post Vigencia"] || item.Dia25PostVigencia}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Día 30 Post Vigencia"] || item.Dia30PostVigencia}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["NumeroMicrochipMascota"] || item.NumeroMicrochipMascota}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Vía de Pago"] || item.ViaDePago}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Tipo Póliza"] || item.TipoPoliza}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Empresa Colectiva"] || item.EmpresaColectiva}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Cargo Colectiva"] || item.CargoColectiva}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Fecha Cancelación"] || item.FechaCancelacion}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Motivo Cancelación"] || item.MotivoCancelacion}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Nombre Asesor"] || item.NombreAsesor}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Traslado Otra Póliza"] || item.TrasladoOtraPoliza}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Sede Empresa Colectiva"] || item.SedeEmpresaColectiva}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Modificaciones"] || item.Modificaciones}</td>
-                                 <td className="border border-gray-300 px-4 py-2 text-center">{item["Fecha Expedición Póliza"] || item.FechaExpedicionPoliza}</td>
-                             </tr>
-                            ))}
-                            </tbody>
-                        </table>
-
-
-                    </div>
-                    <button
-                        onClick={handleUpload}
-                        className="bg-blue-500 text-white p-2 mt-5 rounded-[27px] h-[39px] w-[391px] cursor-pointer hover:bg-[#0033A0]"
-                    >
-                        Enviar a base de datos
-                    </button>
+                    <DataTable jsonData={jsonData} />
+                    <UploadButton handleUpload={handleUpload} loading={loading} />
                 </>
             )}
         </div>

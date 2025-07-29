@@ -73,6 +73,13 @@ export function SearchPage() {
                 });
             });
         } finally {
+            setFormValues({
+                cedula: "",
+                nit: "",
+                idMascota: "",
+                numeroPoliza: "",
+                nombreEmpresa: ""
+            }); // Limpia los campos de consulta
             setLoading(false);
         }
     };

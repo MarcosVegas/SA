@@ -15,6 +15,9 @@ export  function MenuPage() {
     const handleUpload = () => {
         navigate("/upload");
     }
+    const handleCollectivelyUpdate = () => {
+        navigate("/CollectivelyUpdate");
+    }
     return (
         <>
             <div className=" p-10  flex flex-col justify-center items-center">
@@ -25,7 +28,8 @@ export  function MenuPage() {
                     <button onClick={handleSearchPage} className={"bg-blue-500 text-white p-2 m-2 rounded-[27px] h-[56px] w-[425px] cursor-pointer hover:bg-[#0033A0]"}>Consulta y edición de datos</button>
                     <button onClick={handleDownload} className={"bg-blue-500 text-white p-2 m-2 rounded-[27px] h-[56px] w-[425px] cursor-pointer hover:bg-[#0033A0]"}>Descarga de base de datos</button>
                     <button onClick={handleUpload} className={"bg-blue-500 text-white p-2 m-2 rounded-[27px] h-[56px] w-[425px] cursor-pointer hover:bg-[#0033A0]"}>Carga de datos de pólizas colectivas</button>
-                  
+                     <button onClick={handleCollectivelyUpdate} className={"bg-blue-500 text-white p-2 m-2 rounded-[27px] h-[56px] w-[425px] cursor-pointer hover:bg-[#0033A0]"}>Carga de renovaciones masivas</button>
+                   
                 </div>
                 <a className=" text-gray-600 hover:text-red-500 hover:cursor-pointer">Tengo inconvenientes con la herramienta</a>
             </div>

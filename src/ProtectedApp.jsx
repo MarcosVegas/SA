@@ -1,18 +1,72 @@
 // src/ProtectedApp.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 
 const ProtectedApp = ({ children }) => {
   const [accessGranted, setAccessGranted] = useState(false);
   const [apiKey, setApiKey] = useState("");
+  const timeoutRef = useRef(null);
+  const TIMEOUT_DURATION = 5 * 60 * 1000; // 5 minutos en milisegundos
 
   const handleSubmit = () => {
     const storedKey = import.meta.env.VITE_API_KEY;
     if (apiKey === storedKey) {
       setAccessGranted(true);
+      startInactivityTimer();
     } else {
       alert("API Key incorrecta");
     }
   };
+
+  const logout = () => {
+    setAccessGranted(false);
+    setApiKey("");
+    clearTimeout(timeoutRef.current);
+  };
+
+  const startInactivityTimer = () => {
+    // Limpiar el timer existente si hay uno
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    
+    // Iniciar nuevo timer
+    timeoutRef.current = setTimeout(() => {
+      alert("Tu sesión ha expirado por inactividad. Por favor, ingresa la clave nuevamente.");
+      logout();
+    }, TIMEOUT_DURATION);
+  };
+
+  const resetInactivityTimer = () => {
+    if (accessGranted) {
+      startInactivityTimer();
+    }
+  };
+
+  useEffect(() => {
+    if (accessGranted) {
+      // Eventos para detectar actividad del usuario
+      const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
+      
+      const handleActivity = () => {
+        resetInactivityTimer();
+      };
+
+      // Agregar event listeners
+      events.forEach(event => {
+        document.addEventListener(event, handleActivity, true);
+      });
+
+      // Cleanup function
+      return () => {
+        events.forEach(event => {
+          document.removeEventListener(event, handleActivity, true);
+        });
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+        }
+      };
+    }
+  }, [accessGranted]);
 
   if (!accessGranted) {
     return (
